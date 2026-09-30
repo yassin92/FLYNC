@@ -67,6 +67,7 @@ Last checkpoint: 2026-09-30
 - [x] Normalized diagnostic inventory for explicit DoIP logical addresses, UDS service identifiers, DIDs, and DTCs; safe DTC and fixed-length empty DID records emit into validated UDS catalogs.
 - [x] Synthetic diagnostic positive and incomplete-DID coverage; DoIP/UDS deployment and unsupported diagnostic payload semantics remain diagnostics.
 - [x] Full converter regression after Ethernet/SOME/IP/diagnostic slices: 286 tests passed.
+- [x] Topology UML displays VLAN/IP interface notes and directed provider-to-consumer SOME/IP edges when the FLYNC model contains matching deployments.
 
 ### In Progress
 
@@ -86,7 +87,7 @@ The Ethernet L2/L3 slice is now implemented for explicit controller-owned physic
 
 The bounded SOME/IP/diagnostic slice is now implemented for explicit interface metadata and identifier inventory. SOME/IP services require explicit service ID plus major/minor versions; methods, events, fields, and event groups emit only when their identifiers and event-group member references are complete. Existing FLYNC timing/configuration models receive neutral required scaffolding because ARXML timing/deployment semantics are not mapped yet. DTCs emit from explicit 24-bit identifiers; DIDs emit only when an explicit payload byte length permits a truthful empty `DiagDataRecord`. DoIP logical addresses, UDS service IDs, incomplete DIDs, unsupported payload/datatype encodings, service deployments, sockets, and diagnostic server bindings remain provenance-bearing diagnostics.
 
-Next resume point: implement package-aware SOME/IP service-instance/provider/consumer and socket deployment resolution. Then extend diagnostic payload datatype records and DoIP/UDS server bindings. Keep unsupported timing, transport, and OEM-specific payload semantics as provenance-bearing diagnostics until their source mappings are explicit.
+Next resume point: implement package-aware SOME/IP service-instance/provider/consumer and socket deployment resolution in the ARXML importer. The diagram renderer can display these flows when deployments exist in a FLYNC model, but the current ARXML importer does not yet create them, so ARXML-derived diagrams do not gain service arrows from interface declarations alone. Then extend diagnostic payload datatype records and DoIP/UDS server bindings. Keep unsupported timing, transport, and OEM-specific payload semantics as provenance-bearing diagnostics until their source mappings are explicit.
 
 ## Non-Negotiable Constraints
 

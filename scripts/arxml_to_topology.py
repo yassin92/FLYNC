@@ -17,6 +17,44 @@ from flync_converter.converters.arxml_converter import ARXMLConverter
 logger = logging.getLogger(__name__)
 
 
+def _append_communication_annotations(uml_lines: list[str], model) -> None:
+    """Add compact L3/SOME-IP/diagnostic facts to the architecture diagram."""
+    communication = model.communication
+    if communication is None:
+        return
+    lines = ["' Communication summary", "legend right", "  == Communication summary =="]
+    services = getattr(getattr(communication, "someip_config", None), "services", []) or []
+    if services:
+        lines.append(f"  SOME/IP services: {len(services)}")
+        for service in services[:12]:
+            lines.append(f"  - {service.name} (0x{service.id:04X}, v{service.major_version}.{service.minor_version})")
+        if len(services) > 12:
+            lines.append(f"  - ... {len(services) - 12} more")
+    channels = getattr(communication, "channels", None)
+    if channels is not None:
+        can_buses = getattr(channels, "can_buses", None) or []
+        lin_buses = getattr(channels, "lin_buses", None) or []
+        if can_buses:
+            lines.append(f"  CAN buses: {len(can_buses)}")
+        if lin_buses:
+            lines.append(f"  LIN buses: {len(lin_buses)}")
+        pdus = getattr(channels, "pdus", None) or []
+        if pdus:
+            lines.append(f"  PDUs: {len(pdus)}")
+    diagnostics = getattr(communication, "diagnostics_config", None)
+    if diagnostics is not None:
+        uds = getattr(diagnostics, "uds", None)
+        dids = getattr(uds, "dids", None) if uds is not None else None
+        dtcs = getattr(uds, "dtcs", None) if uds is not None else None
+        if dids:
+            lines.append(f"  DIDs: {len(dids)}")
+        if dtcs:
+            lines.append(f"  DTCs: {len(dtcs)}")
+    if len(lines) > 3:
+        lines.extend(["  ==", "endlegend", ""])
+        uml_lines[1:1] = lines
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     parser = argparse.ArgumentParser(description="Convert an ARXML file/folder to topology.puml, topology.svg, and topology.html.")
@@ -58,9 +96,10 @@ def generate_topology(input_folder: Path, output_folder: Path, progress: Callabl
             if path.is_file():
                 archive.write(path, path.relative_to(config_folder))
 
-    uml_lines, included_ecus = parse_and_generate_uml(model, None, [], model.ecus, [])
+    uml_lines, included_ecus = parse_and_generate_uml(model, None, ["iface"], model.ecus, [])
     if not included_ecus:
         raise ValueError("The converted model contains no Ethernet components to draw")
+    _append_communication_annotations(uml_lines, model)
     report("Writing PlantUML topology source...")
     puml_path.write_text("\n".join(uml_lines), encoding="utf-8")
 

@@ -55,8 +55,9 @@ def add_iface_info_nodes(interfaces, all_nodes):
         iface_name = iface.name
         viface_list = []
 
-        vifaces = iface.virtual_interfaces
-        mac_address = iface.mac_address
+        config = iface.interface_config
+        vifaces = config.virtual_interfaces
+        mac_address = config.mac_address
 
         for viface in vifaces:
             viface_info = {
@@ -484,6 +485,40 @@ def _segment_node_label(node):
     return f"slot {node.node_id}"
 
 
+def _ecu_alias(name: str) -> str:
+    """Return a stable PlantUML identifier for an ECU package."""
+    alias = re.sub(r"\W", "_", name)
+    return f"ecu_{alias}"
+
+
+def add_someip_uml(flync, uml_lines, included_ecus):
+    """Draw directed provider-to-consumer edges for resolved SOME/IP instances."""
+    providers: dict[tuple[int, int, int], list[tuple[str, object]]] = {}
+    consumers: list[tuple[str, object]] = []
+    for ecu in flync.ecus:
+        for deployment in ecu.get_provided_services():
+            key = (deployment.service, deployment.major_version, deployment.instance_id)
+            providers.setdefault(key, []).append((ecu.name, deployment))
+        for deployment in ecu.get_consumed_services():
+            consumers.append((ecu.name, deployment))
+
+    edges = []
+    for consumer_ecu, consumer in consumers:
+        key = (consumer.service, consumer.major_version, consumer.instance_id)
+        for provider_ecu, provider in providers.get(key, []):
+            if consumer_ecu == provider_ecu or consumer_ecu not in included_ecus or provider_ecu not in included_ecus:
+                continue
+            service = getattr(getattr(provider, "_service_ref", None), "name", f"0x{provider.service:04X}")
+            label = f"SOME/IP {service} v{provider.major_version}, instance {provider.instance_id}"
+            edges.append((provider_ecu, consumer_ecu, label))
+    if not edges:
+        return
+
+    uml_lines.append("' SOME/IP provider to consumer communication")
+    for provider_ecu, consumer_ecu, label in sorted(set(edges)):
+        uml_lines.append(f"{_ecu_alias(provider_ecu)} -[#6b4eff,thickness=2]-> {_ecu_alias(consumer_ecu)} : {label}")
+
+
 def _draw_segment(conn, nodes, all_nodes, uml_lines):
     """Draw one segment as a queue with its nodes hanging off it, in the order their transmit opportunities come round."""
 
@@ -592,7 +627,7 @@ def parse_and_generate_uml(flync, vlan_id, options, ecus, connections):
     ordered_ecus = _ecu_layout_order(flync, all_nodes["included_ecus"])
 
     for ecu_name in ordered_ecus:
-        uml_lines.append(f'package "{ecu_name}" #WhiteSmoke {{')
+        uml_lines.append(f'package "{ecu_name}" as {_ecu_alias(ecu_name)} #WhiteSmoke {{')
         generate_ecu_uml(ecu_name, uml_lines, all_nodes)
         uml_lines.append("}")
         uml_lines.append("")
@@ -610,6 +645,7 @@ def parse_and_generate_uml(flync, vlan_id, options, ecus, connections):
         add_inter_ecu_uml(conn, all_nodes, uml_lines, vlan_id)
 
     add_multidrop_uml(flync, all_nodes, uml_lines, vlan_id)
+    add_someip_uml(flync, uml_lines, all_nodes["included_ecus"])
 
     uml_lines.append("@enduml")
     return uml_lines, all_nodes["included_ecus"]

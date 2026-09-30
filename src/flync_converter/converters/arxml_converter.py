@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ElementTree
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -84,7 +84,7 @@ def discover_arxml_files(config_path: str | Path) -> list[Path]:
     return discover_ir_files(config_path)
 
 
-def load_arxml_documents(config_path: str | Path) -> ARXMLDocument:
+def load_arxml_documents(config_path: str | Path, *, strict: bool = True) -> ARXMLDocument:
     """Load and merge ARXML documents through the normalized input layer."""
     document = merge([parse_file(path) for path in discover_ir_files(config_path)])
     if not document.ecus:
@@ -92,8 +92,17 @@ def load_arxml_documents(config_path: str | Path) -> ARXMLDocument:
     _validate_pdu_frame_mappings(document)
     _validate_someip_records(document)
     _validate_diagnostic_inventory(document)
+    if not strict:
+        document.diagnostics = [
+            (
+                replace(diagnostic, severity="warning")
+                if diagnostic.severity == "error" and ("PDU-to-frame" in diagnostic.message or "PDU placement" in diagnostic.message)
+                else diagnostic
+            )
+            for diagnostic in document.diagnostics
+        ]
     errors = [diagnostic.message for diagnostic in document.diagnostics if diagnostic.severity == "error"]
-    if errors:
+    if strict and errors:
         raise ValueError("ARXML reference conflicts: " + "; ".join(errors))
     return document
 
@@ -103,21 +112,36 @@ def _validate_pdu_frame_mappings(document: ARXMLDocument) -> None:
     frames = {frame.name: frame for frame in document.frames}
     pdus = {pdu.name: pdu for pdu in document.pdus}
     seen: set[tuple[str | None, str | None, int | None]] = set()
+    reported_duplicates: set[tuple[str | None, str | None, int | None]] = set()
+    reported_incomplete: set[tuple[str | None, str | None, int | None]] = set()
     ranges: dict[str, list[tuple[int, int, str]]] = {}
     for mapping in document.pdu_frame_mappings:
         key = (mapping.frame_ref, mapping.pdu_ref, mapping.bit_position)
         if key in seen:
-            document.diagnostics.append(
-                ARXMLDiagnostic(
-                    "error", f"Duplicate PDU-to-frame mapping for frame '{mapping.frame_ref}' and PDU '{mapping.pdu_ref}'", mapping.source
+            if key not in reported_duplicates:
+                severity = "error" if mapping.frame_ref is not None and mapping.pdu_ref is not None else "warning"
+                document.diagnostics.append(
+                    ARXMLDiagnostic(
+                        severity,
+                        f"{'Duplicate' if severity == 'error' else 'Repeated'} PDU-to-frame mapping was ignored: "
+                        f"frame='{mapping.frame_ref}', pdu='{mapping.pdu_ref}'",
+                        mapping.source,
+                    )
                 )
-            )
+                reported_duplicates.add(key)
             continue
         seen.add(key)
         if mapping.frame_ref is None or mapping.pdu_ref is None or mapping.bit_position is None:
-            document.diagnostics.append(
-                ARXMLDiagnostic("error", "Incomplete PDU-to-frame mapping requires frame, PDU, and bit position", mapping.source)
-            )
+            if key not in reported_incomplete:
+                severity = "error" if mapping.frame_ref is not None and mapping.pdu_ref is not None else "warning"
+                document.diagnostics.append(
+                    ARXMLDiagnostic(
+                        severity,
+                        "Incomplete PDU-to-frame mapping requires frame, PDU, and bit position; mapping was ignored",
+                        mapping.source,
+                    )
+                )
+                reported_incomplete.add(key)
             continue
         frame = frames.get(mapping.frame_ref)
         pdu = pdus.get(mapping.pdu_ref)
@@ -497,8 +521,13 @@ def _model_from_documents(document: ARXMLDocument) -> FLYNCModel:
     lin_buses = [
         {"name": bus.name, "baud_rate": bus.baud_rate, "lin_protocol_version": "2.1", "lin_language_version": "2.1", "frames": lin_frames[bus.name]}
         for bus in document.buses
-        if bus.kind == "lin" and bus.baud_rate is not None
+        if bus.kind == "lin" and bus.baud_rate in {1_200, 2_400, 4_800, 9_600, 10_400, 19_200}
     ]
+    for bus in document.buses:
+        if bus.kind == "lin" and bus.baud_rate is not None and bus.baud_rate not in {1_200, 2_400, 4_800, 9_600, 10_400, 19_200}:
+            document.diagnostics.append(
+                ARXMLDiagnostic("warning", f"LIN bus '{bus.name}' uses unsupported baud rate {bus.baud_rate}; bus was not emitted", bus.source)
+            )
     if lin_buses:
         channels_payload["lin_buses"] = lin_buses
     if can_buses or lin_buses or pdus:
@@ -661,7 +690,7 @@ class ARXMLConverter(BaseConverter):
         """Decode configured ARXML input into a validated FLYNC model."""
         if self.config is None:
             raise ValueError("config must be set before decoding")
-        document = load_arxml_documents(self.config.config_path)
+        document = load_arxml_documents(self.config.config_path, strict=False)
         logger.info("Parsed %d ECU instances from ARXML input", len(document.ecus))
         return _model_from_documents(document)
 

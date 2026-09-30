@@ -37,10 +37,10 @@ ARXML import
 ~~~~~~~~~~~~
 
 The ``arxml`` converter accepts one ``.arxml`` file or a directory of ARXML fragments and produces a validated
-``FLYNCModel``. The first implementation maps ECU instances, communication controllers, and Ethernet physical
-channels, and basic CAN channel metadata when the source provides a supported baud rate. Unsupported AUTOSAR
-content is not silently mapped; signal/PDU packing, LIN schedule details, SOME/IP, diagnostics, and full network
-topology coverage remain separate implementation phases.
+``FLYNCModel``. It maps ECU/controller/Ethernet structure, selected CAN/LIN and PDU/signal data, explicit Ethernet
+VLAN/IP/socket configuration, bounded SOME/IP interface metadata, and diagnostic identifiers. Unsupported or
+ambiguous AUTOSAR semantics remain diagnostics; service-instance deployments and some network-topology relationships
+are not yet resolved by the ARXML importer.
 
 .. code-block:: bash
 
@@ -60,8 +60,11 @@ to PlantUML, SVG, and HTML:
   uv run python scripts/arxml_to_topology.py path/to/arxml-folder --output topology-output
 
 The command creates ``topology-output/topology.puml``, ``topology-output/topology.svg``, and
-``topology-output/topology.html``. Java must be available on ``PATH`` for PlantUML rendering. The current ARXML
-draft maps ECU/controller/Ethernet structure; it does not yet represent all AUTOSAR network connections.
+``topology-output/topology.html``. Java must be available on ``PATH`` for PlantUML rendering. Interface notes show
+available VLAN IDs and IP addresses. Directed SOME/IP arrows are drawn between different ECUs only when the FLYNC
+model contains matching provider and consumer deployments (service ID, major version, and instance ID). The current
+ARXML importer does not yet resolve those service-instance deployments, so an ARXML-derived diagram may not contain
+SOME/IP arrows until that mapping is implemented; no communication is inferred from interface declarations alone.
 
 Browser application
 ~~~~~~~~~~~~~~~~~~~
@@ -72,9 +75,10 @@ For interactive visualization, start the local browser application:
 
   uv run python scripts/arxml_topology_web.py
 
-It opens ``http://127.0.0.1:8765``. Enter the local ARXML folder and choose **Generate diagram**. The generated SVG
-is displayed in the page, with links to the HTML viewer and PlantUML source. Use ``--port`` to choose another port or
-``--no-browser`` to start without opening a browser automatically.
+It opens the local browser interface. Enter the local ARXML folder and choose **Generate diagram**. The generated SVG
+is displayed in the page, with links to the HTML viewer, PlantUML source, and generated FLYNC ZIP. The diagram shows
+VLAN/IP interface annotations and, when the model contains resolved SOME/IP deployments, directed provider-to-consumer
+arrows. Use ``--port`` to choose another port or ``--no-browser`` to start without opening a browser automatically.
 
 ----
 

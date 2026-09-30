@@ -446,6 +446,40 @@ def _controller(path: Path, element: ElementTree.Element, index: int) -> ARXMLCo
     )
 
 
+def _merge_pdu(existing: ARXMLPdu, incoming: ARXMLPdu) -> tuple[ARXMLPdu, str | None]:
+    """Merge repeated PDU fragments and return a semantic conflict, if any."""
+    if existing.length is not None and incoming.length is not None and existing.length != incoming.length:
+        merged_length = max(existing.length, incoming.length)
+        return (
+            ARXMLPdu(
+                name=existing.name,
+                length=merged_length,
+                signal_refs=tuple(dict.fromkeys(existing.signal_refs + incoming.signal_refs)),
+                placements=existing.placements,
+                source=existing.source,
+            ),
+            f"Conflicting PDU length for '{existing.name}': {existing.length} vs {incoming.length}; retained {merged_length}",
+        )
+
+    placements: dict[str, tuple[str, int | None, str | None]] = {placement[0]: placement for placement in existing.placements}
+    for placement in incoming.placements:
+        previous = placements.get(placement[0])
+        if previous is not None and previous[1:] != placement[1:]:
+            return existing, f"Conflicting PDU placement for '{existing.name}' signal '{placement[0]}'"
+        placements[placement[0]] = placement
+
+    return (
+        ARXMLPdu(
+            name=existing.name,
+            length=existing.length if existing.length is not None else incoming.length,
+            signal_refs=tuple(dict.fromkeys(existing.signal_refs + incoming.signal_refs)),
+            placements=tuple(placements.values()),
+            source=existing.source,
+        ),
+        None,
+    )
+
+
 def _someip_service(path: Path, element: ElementTree.Element, index: int) -> ARXMLSomeIPService | None:
     name = short_name(element)
     if not name:
@@ -742,8 +776,13 @@ def merge(documents: list[ARXMLDocument]) -> ARXMLDocument:
             existing = next((item for item in result.pdus if item.name == pdu.name), None)
             if existing is None:
                 result.pdus.append(pdu)
-            elif existing != pdu:
-                result.diagnostics.append(ARXMLDiagnostic("error", f"Conflicting PDU definition '{pdu.name}'", pdu.source))
+            else:
+                merged_pdu, conflict = _merge_pdu(existing, pdu)
+                if conflict is not None:
+                    result.diagnostics.append(ARXMLDiagnostic("warning", conflict, pdu.source))
+                    result.pdus[result.pdus.index(existing)] = merged_pdu
+                else:
+                    result.pdus[result.pdus.index(existing)] = merged_pdu
         for ecu in document.ecus:
             previous_ecu = ecu_map.get(ecu.name)
             if previous_ecu is None:

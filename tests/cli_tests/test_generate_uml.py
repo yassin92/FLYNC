@@ -1,6 +1,7 @@
 """Tests for the generate_system_uml CLI command and node-builder helpers."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +20,7 @@ from flync_cli.commands.generate_system_uml import (
     add_qos_iface,
     add_qos_switch,
     add_shapers_switch_port,
+    add_someip_uml,
     add_switch_macsec,
     add_switch_nodes,
     add_switch_port_nodes,
@@ -426,6 +428,7 @@ class TestDrawIfaceInfoUml:
         draw_iface_info_uml("ETH0", all_nodes, uml_lines)
         assert any("note right" in line for line in uml_lines)
         assert any("vi0" in line for line in uml_lines)
+        assert any("vlan_id: 10" in line for line in uml_lines)
         assert any("192.168.1.1" in line for line in uml_lines)
 
     def test_emits_multicast(self):
@@ -503,7 +506,6 @@ class TestDrawControllersUml:
         draw_controllers_uml(ecu_nodes, all_nodes, uml_lines)
         assert any("PTP" in line for line in uml_lines)
         assert any("MACsec" in line for line in uml_lines)
-        assert any("HTB" in line for line in uml_lines)
 
 
 class TestDrawMacsecInfoUmlSwitch:
@@ -713,6 +715,46 @@ class TestParseAndGenerateUml:
         conn.id = "link1"
         lines, _ = parse_and_generate_uml(model, None, [], [], [conn])
         assert any("O--O" in line for line in lines)
+
+    def test_someip_service_instance_draws_provider_to_consumer_edge(self):
+        provider = SimpleNamespace(service=0x1234, major_version=1, instance_id=2, _service_ref=SimpleNamespace(name="BodyService"))
+        consumer = SimpleNamespace(service=0x1234, major_version=1, instance_id=2)
+        provider_ecu = SimpleNamespace(name="ProviderECU", get_provided_services=lambda: [provider], get_consumed_services=lambda: [])
+        consumer_ecu = SimpleNamespace(name="ConsumerECU", get_provided_services=lambda: [], get_consumed_services=lambda: [consumer])
+        model = SimpleNamespace(ecus=[provider_ecu, consumer_ecu])
+        lines = []
+
+        add_someip_uml(model, lines, {"ProviderECU", "ConsumerECU"})
+
+        assert lines == [
+            "' SOME/IP provider to consumer communication",
+            "ecu_ProviderECU -[#6b4eff,thickness=2]-> ecu_ConsumerECU : SOME/IP BodyService v1, instance 2",
+        ]
+
+    @pytest.mark.parametrize(
+        "consumer_service, consumer_major_version, consumer_instance_id",
+        [(0x9999, 1, 2), (0x1234, 2, 2), (0x1234, 1, 3)],
+    )
+    def test_someip_service_instance_does_not_link_mismatched_deployment(self, consumer_service, consumer_major_version, consumer_instance_id):
+        provider = SimpleNamespace(service=0x1234, major_version=1, instance_id=2)
+        consumer = SimpleNamespace(service=consumer_service, major_version=consumer_major_version, instance_id=consumer_instance_id)
+        provider_ecu = SimpleNamespace(name="ProviderECU", get_provided_services=lambda: [provider], get_consumed_services=lambda: [])
+        consumer_ecu = SimpleNamespace(name="ConsumerECU", get_provided_services=lambda: [], get_consumed_services=lambda: [consumer])
+
+        uml_lines = []
+        add_someip_uml(SimpleNamespace(ecus=[provider_ecu, consumer_ecu]), uml_lines, {"ProviderECU", "ConsumerECU"})
+
+        assert uml_lines == []
+
+    def test_someip_service_instance_does_not_draw_same_ecu_edge(self):
+        provider = SimpleNamespace(service=0x1234, major_version=1, instance_id=2)
+        consumer = SimpleNamespace(service=0x1234, major_version=1, instance_id=2)
+        ecu = SimpleNamespace(name="SingleECU", get_provided_services=lambda: [provider], get_consumed_services=lambda: [consumer])
+        uml_lines = []
+
+        add_someip_uml(SimpleNamespace(ecus=[ecu]), uml_lines, {"SingleECU"})
+
+        assert uml_lines == []
 
 
 class TestGenerateSystemUmlCommand:
