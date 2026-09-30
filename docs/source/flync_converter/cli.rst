@@ -33,6 +33,49 @@ Lists all converters currently registered, including any discovered plugins.
 
 Output is a table with the converter name and a short description taken from each converter's docstring.
 
+ARXML import
+~~~~~~~~~~~~
+
+The ``arxml`` converter accepts one ``.arxml`` file or a directory of ARXML fragments and produces a validated
+``FLYNCModel``. The first implementation maps ECU instances, communication controllers, and Ethernet physical
+channels, and basic CAN channel metadata when the source provides a supported baud rate. Unsupported AUTOSAR
+content is not silently mapped; signal/PDU packing, LIN schedule details, SOME/IP, diagnostics, and full network
+topology coverage remain separate implementation phases.
+
+.. code-block:: bash
+
+  flync-converter convert --source path/to/arxml-or-directory --output path/to/flync-workspace --source-format arxml --output-format flync
+
+ARXML fragments with the same ECU ``SHORT-NAME`` are merged. Input files are read-only, and proprietary OEM
+extracts must not be used as committed fixtures.
+
+Topology export example
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The repository includes a reference script that converts an ARXML folder and renders the current topology snapshot
+to PlantUML, SVG, and HTML:
+
+.. code-block:: bash
+
+  uv run python scripts/arxml_to_topology.py path/to/arxml-folder --output topology-output
+
+The command creates ``topology-output/topology.puml``, ``topology-output/topology.svg``, and
+``topology-output/topology.html``. Java must be available on ``PATH`` for PlantUML rendering. The current ARXML
+draft maps ECU/controller/Ethernet structure; it does not yet represent all AUTOSAR network connections.
+
+Browser application
+~~~~~~~~~~~~~~~~~~~
+
+For interactive visualization, start the local browser application:
+
+.. code-block:: bash
+
+  uv run python scripts/arxml_topology_web.py
+
+It opens ``http://127.0.0.1:8765``. Enter the local ARXML folder and choose **Generate diagram**. The generated SVG
+is displayed in the page, with links to the HTML viewer and PlantUML source. Use ``--port`` to choose another port or
+``--no-browser`` to start without opening a browser automatically.
+
 ----
 
 ``convert``
